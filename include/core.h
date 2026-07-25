@@ -6,8 +6,15 @@
 #include <stdexcept>
 #include <sys/types.h>
 #include <vector>
+#include "glm/glm.hpp"
 
 typedef struct  {
     int graphicsQueueIndex;
     VkQueue queue;
 } GraphicsQueue;
+
+struct Vertex
+{
+    glm::vec2 pos;
+    glm::vec3 color;
+};
