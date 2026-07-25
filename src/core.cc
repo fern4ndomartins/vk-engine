@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -32,6 +33,28 @@ class Core {
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 
+    VkBuffer vertexBuffer;
+    VkBuffer indexBuffer;
+    VkDeviceMemory vertexBufferMemory;
+    VkDeviceMemory indexBufferMemory;
+
+    std::vector<Vertex> vertices = {
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+
+    {{1.5f, 1.5f}, {1.0f, 0.0f, 0.0f}},
+    {{2.5f, 1.5f}, {0.0f, 1.0f, 0.0f}},
+    {{2.5f, 2.5f}, {0.0f, 0.0f, 1.0f}},
+    {{1.5f, 2.5f}, {1.0f, 1.0f, 1.0f}}
+    };
+    std::vector<uint16_t> indices = {
+    0, 1, 2, 2, 3, 0,
+    4, 5, 6, 6, 7, 4
+    };
+
+
     void runApp() {
         initEngine();
     }
@@ -43,6 +66,7 @@ class Core {
         createSwapchain();
         createSwapchainImages();
         createPipeline();
+        createVertexAndIndexBuffers();
     }
     void createWindow() {
         glfwInit();
@@ -402,6 +426,56 @@ class Core {
 
         vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
         printf("pipeline created successfully\n");
+    }
+
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDeviceMemoryProperties memPro) {
+        for (uint32_t i = 0; i< memPro.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && (memPro.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+            }
+        }  
+        throw std::runtime_error("failed to find suitable memory type");
+
+        return 0;
+        }
+    
+    void createBuffer(VkBufferUsageFlags usageFlags, uint64_t size, VkBuffer *buffer, VkDeviceMemory *bufferMemory) {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.usage = usageFlags;
+        bufferInfo.size = size;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, buffer) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create buffer\n");
+        }
+        VkMemoryRequirements memoryRequirements;
+        vkGetBufferMemoryRequirements(device, *buffer, &memoryRequirements);
+        VkPhysicalDeviceMemoryProperties memoryProperties;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+
+        VkMemoryAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        VkMemoryPropertyFlags propertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        allocateInfo.memoryTypeIndex = findMemoryType(memoryRequirements.memoryTypeBits, propertyFlags, memoryProperties);
+
+        if (vkAllocateMemory(device, &allocateInfo, nullptr, bufferMemory) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create buffer\n");
+        }
+        vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
+    }
+
+    void createVertexAndIndexBuffers() {
+        createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.size()*sizeof(vertices[0]), &vertexBuffer, &vertexBufferMemory);
+        createBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indices.size()*sizeof(indices[0]), &indexBuffer, &indexBufferMemory);
+        void * vertexData;
+        void * indexData;
+        vkMapMemory(device, vertexBufferMemory, 0, vertices.size()*sizeof(vertices[0]), 0, &vertexData);
+        vkMapMemory(device, indexBufferMemory, 0, indices.size()*sizeof(indices[0]), 0, &indexData);
+        memcpy(vertexData, vertices.data(), vertices.size()*sizeof(vertices[0]));
+        memcpy(indexData, indices.data(), indices.size()*sizeof(indices[0]));
+        vkUnmapMemory(device, vertexBufferMemory);
+        vkUnmapMemory(device, indexBufferMemory);
     }
 };
 
