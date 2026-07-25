@@ -31,8 +31,9 @@ class Core {
         createWindow();
         createInstance();
         createSurface();
-        createSwapchain();
         createDevice();
+
+        createSwapchain();
         
     }
     void createWindow() {
@@ -75,6 +76,16 @@ class Core {
             printf("instance created!\n");
         }
     }
+
+    bool isDeviceSuitable(VkPhysicalDevice pdev) {
+        VkPhysicalDeviceProperties deviceProps; 
+        vkGetPhysicalDeviceProperties(pdev, &deviceProps);
+        if (deviceProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU || deviceProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+            return true;
+        }
+        return false;
+    }
+
     void createDevice() {
         std::vector<VkPhysicalDevice> devices;
         uint32_t deviceCount;
@@ -84,7 +95,15 @@ class Core {
         if (deviceCount == 0) {
             throw std::runtime_error("no available devices\n");
         } // add logic to pick the most ideal physical device
-        physicalDevice = devices[0];
+        bool devFound = false;
+        for (auto pdev : devices) {
+            if (isDeviceSuitable(pdev)) {
+                physicalDevice = pdev;
+                devFound = true;
+                break;
+            }
+        }
+        if (!devFound) throw std::runtime_error("no suitable physical device\n");
 
         uint32_t queueFamilyCount;
         std::vector<VkQueueFamilyProperties> queueFamilyProps;
@@ -112,7 +131,7 @@ class Core {
 
         VkPhysicalDeviceFeatures features{};
         VkPhysicalDeviceVulkan13Features features13{};
-        features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
+        features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         features13.dynamicRendering = VK_TRUE;
         features13.synchronization2 = VK_TRUE;
 
@@ -184,6 +203,7 @@ class Core {
         swapchainInfo.imageArrayLayers = 1;
         swapchainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         swapchainInfo.preTransform = pSurfaceCapabilities.currentTransform;
+        swapchainInfo.surface = surface;
 
         if (vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &swapchain) != VK_SUCCESS) {
             throw std::runtime_error("failed to create swapchain\n");
