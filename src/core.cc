@@ -1,9 +1,11 @@
 #include "../include/core.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 #include <vulkan/vulkan_core.h>
 
 class Core {
@@ -14,15 +16,20 @@ class Core {
 
     VkInstance instance;
 
-    VkExtent2D extent;
     VkSurfaceKHR surface;
+    VkExtent2D extent;
     VkFormat format;
     VkSwapchainKHR swapchain;
+    std::vector<VkImage> swapchainImages;
+    std::vector<VkImageView> swapchainImageViews;
 
     VkPhysicalDevice physicalDevice;
     VkDevice device;
 
     GraphicsQueue queue;
+
+    VkPipeline pipeline;
+    VkPipelineLayout pipelineLayout;
 
     void runApp() {
         initVulkan();
@@ -32,9 +39,9 @@ class Core {
         createInstance();
         createSurface();
         createDevice();
-
         createSwapchain();
-        
+        createSwapchainImages();
+        createPipeline();
     }
     void createWindow() {
         glfwInit();
@@ -210,8 +217,33 @@ class Core {
         } else {
             printf("swapchain created\n");
         }
-
     }
+
+    void createSwapchainImages() {
+        uint32_t imageCount;
+        vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
+        swapchainImages.resize(imageCount);
+        vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
+
+        VkImageViewCreateInfo imageViewInfo{};
+        imageViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewInfo.format = format;
+        imageViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewInfo.subresourceRange.baseMipLevel = 0;
+        imageViewInfo.subresourceRange.levelCount = 1;
+        imageViewInfo.subresourceRange.baseArrayLayer = 0;
+        imageViewInfo.subresourceRange.layerCount = 1;
+        
+        for (auto &image : swapchainImages) {
+            VkImageView imageView;
+            imageViewInfo.image = image;
+            vkCreateImageView(device, &imageViewInfo, nullptr, &imageView);
+            swapchainImageViews.push_back(imageView);
+        }
+    }
+
+    void createPipeline() {}
 };
 
 int main() {
