@@ -1,5 +1,8 @@
 #include "../include/core.h"
+#include <GLFW/glfw3.h>
+#include <algorithm>
 #include <cstdio>
+#include <limits>
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
 
@@ -10,6 +13,12 @@ class Core {
     const int HEIGHT = 500; 
 
     VkInstance instance;
+
+    VkExtent2D extent;
+    VkSurfaceKHR surface;
+    VkFormat format;
+    VkSwapchainKHR swapchain;
+
     VkPhysicalDevice physicalDevice;
     VkDevice device;
 
@@ -21,7 +30,10 @@ class Core {
     void initVulkan() {
         createWindow();
         createInstance();
+        createSurface();
+        createSwapchain();
         createDevice();
+        
     }
     void createWindow() {
         glfwInit();
@@ -130,7 +142,54 @@ class Core {
         }
 
         vkGetDeviceQueue(device, queue.graphicsQueueIndex, 0, &queue.queue);
+    }
 
+    void createSurface() {
+        VkResult res = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+        if (res != VK_SUCCESS) {
+            throw std::runtime_error("failed to create surface\n");
+        }
+    }
+
+    VkExtent2D chooseSwapChainExtent(VkSurfaceCapabilitiesKHR capabilities) {
+        if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+        {
+            return capabilities.currentExtent;
+        }
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+
+        return {
+            std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+            std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)
+        };
+    }
+
+    void createSwapchain() { 
+        VkSurfaceCapabilitiesKHR pSurfaceCapabilities;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &pSurfaceCapabilities);
+        extent = chooseSwapChainExtent(pSurfaceCapabilities);
+        format = VK_FORMAT_B8G8R8A8_SRGB;
+
+        VkSwapchainCreateInfoKHR swapchainInfo{};
+        swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        swapchainInfo.minImageCount = 3;
+        swapchainInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        swapchainInfo.clipped = true;
+        swapchainInfo.imageFormat = format;
+        swapchainInfo.imageExtent = extent;
+        swapchainInfo.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+        swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        swapchainInfo.imageArrayLayers = 1;
+        swapchainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        swapchainInfo.preTransform = pSurfaceCapabilities.currentTransform;
+
+        if (vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &swapchain) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create swapchain\n");
+        } else {
+            printf("swapchain created\n");
+        }
 
     }
 };
