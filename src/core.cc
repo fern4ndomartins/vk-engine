@@ -10,12 +10,15 @@
 #include <vulkan/vulkan_core.h>
 #include <fstream>
 
+
+
+
 class Core {
     public:
     GLFWwindow* window;
     const int WIDTH = 900; 
     const int HEIGHT = 500; 
-
+    const int MAX_FRAMES_IN_FLIGHT = 2;
     VkInstance instance;
 
     VkSurfaceKHR surface;
@@ -54,6 +57,11 @@ class Core {
     4, 5, 6, 6, 7, 4
     };
 
+    std::vector<VkSemaphore> presentCompleteSemaphores;
+    std::vector<VkSemaphore> renderedFinishedSemaphores;
+    std::vector<VkFence> drawFences;
+
+    int currentFrame = 0;
 
     void runApp() {
         initEngine();
@@ -67,6 +75,8 @@ class Core {
         createSwapchainImages();
         createPipeline();
         createVertexAndIndexBuffers();
+        createSyncObjects();
+
     }
     void createWindow() {
         glfwInit();
@@ -476,6 +486,47 @@ class Core {
         memcpy(indexData, indices.data(), indices.size()*sizeof(indices[0]));
         vkUnmapMemory(device, vertexBufferMemory);
         vkUnmapMemory(device, indexBufferMemory);
+    }
+
+    void createSyncObjects() {
+        presentCompleteSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        renderedFinishedSemaphores.resize(swapchainImages.size());
+        drawFences.resize(MAX_FRAMES_IN_FLIGHT);
+        VkSemaphoreCreateInfo presentSemaphoreInfo = {};
+        presentSemaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        VkSemaphoreCreateInfo renderedFinishedInfo = {};
+        renderedFinishedInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+        int idx = 0;
+        while (idx < MAX_FRAMES_IN_FLIGHT) {
+            vkCreateSemaphore(device, &presentSemaphoreInfo, nullptr, &presentCompleteSemaphores[idx]);
+            vkCreateFence(device, &fenceInfo, nullptr, &drawFences[idx]);
+            idx++;
+        }
+        idx = 0;
+        while (idx < swapchainImages.size()) {
+            vkCreateSemaphore(device, &renderedFinishedInfo, nullptr, &renderedFinishedSemaphores[idx]);
+            idx++;
+        }
+    }
+
+    void handleInput() {
+
+    }
+
+    void handleMouse() {
+
+    }
+
+    void mainLoop() {
+        while (!glfwWindowShouldClose(window)) {
+            handleInput();
+            handleMouse();
+        }
     }
 };
 
