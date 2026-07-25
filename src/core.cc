@@ -62,6 +62,10 @@ class Core {
     std::vector<VkFence> drawFences;
 
     int currentFrame = 0;
+    uint32_t imageIndex;
+
+    std::vector<VkCommandBuffer> commandBuffers;
+    VkCommandPool commandPool;
 
     void runApp() {
         initEngine();
@@ -76,6 +80,9 @@ class Core {
         createPipeline();
         createVertexAndIndexBuffers();
         createSyncObjects();
+        createCommandBufferPool();
+        allocateCommandBuffers();
+        mainLoop();
 
     }
     void createWindow() {
@@ -514,6 +521,118 @@ class Core {
         }
     }
 
+    void createCommandBufferPool() {
+        VkCommandPoolCreateInfo poolInfo = {};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.queueFamilyIndex = queue.graphicsQueueIndex;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool);
+
+    }
+
+    void allocateCommandBuffers() {
+        commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        VkCommandBufferAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocateInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
+        allocateInfo.commandPool = commandPool;
+        allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+        if (vkAllocateCommandBuffers(device, &allocateInfo, commandBuffers.data()) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate command buffer");
+        }
+    }
+
+    void transition_image_layout(VkImageLayout old_layout, VkImageLayout new_layout, VkAccessFlags2 src_access_mask, VkAccessFlags2 dst_access_mask,  VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask) 
+    {
+        VkImageMemoryBarrier2 barrier = {};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        barrier.image = swapchainImages[imageIndex];
+        barrier.srcAccessMask = src_access_mask;
+        barrier.dstAccessMask = dst_access_mask;
+        barrier.srcStageMask = src_stage_mask;
+        barrier.dstStageMask = dst_stage_mask;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; 
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; 
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+
+        VkDependencyInfo dependencyInfo = {};
+        dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dependencyInfo.imageMemoryBarrierCount = 1;
+        dependencyInfo.pImageMemoryBarriers = &barrier;
+
+        vkCmdPipelineBarrier2(commandBuffers[currentFrame], &dependencyInfo);    
+    }
+
+    void recordCommandBuffer() {
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        VkRenderingAttachmentInfo renderingAttachmentInfo = {};
+        renderingAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        renderingAttachmentInfo.clearValue = clearColor;
+        renderingAttachmentInfo.imageView = swapchainImageViews[imageIndex];
+        renderingAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        renderingAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        renderingAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(extent.width);
+        viewport.height = static_cast<float>(extent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = extent;
+
+        VkRenderingInfo renderingInfo = {};
+        renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        renderingInfo.renderArea = {.offset = {0, 0}, .extent = extent};
+        renderingInfo.layerCount = 1;
+        renderingInfo.colorAttachmentCount = 1;
+        renderingInfo.pColorAttachments = &renderingAttachmentInfo;
+
+        if (vkBeginCommandBuffer(commandBuffers[currentFrame], &beginInfo) != VK_SUCCESS) {
+            throw std::runtime_error("failed to begin command buffer");
+        }
+
+        transition_image_layout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, {}, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        
+        vkCmdBeginRendering(commandBuffers[currentFrame], &renderingInfo);
+
+        vkCmdBindPipeline(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        vkCmdSetViewport(commandBuffers[currentFrame], 0, 1, &viewport);
+        
+        vkCmdSetScissor(commandBuffers[currentFrame], 0, 1, &scissor);
+
+        VkDeviceSize offset = 0;
+
+        vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, &vertexBuffer, &offset);
+
+        vkCmdBindIndexBuffer(commandBuffers[currentFrame], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+        vkCmdDrawIndexed(commandBuffers[currentFrame], indices.size(), 2, 0, 0, 0);
+
+        vkCmdEndRendering(commandBuffers[currentFrame]);    
+
+        transition_image_layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, {}, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+        if (vkEndCommandBuffer(commandBuffers[currentFrame]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to record command buffer!");
+        }
+    }
+
     void handleInput() {
 
     }
@@ -524,8 +643,45 @@ class Core {
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+            
             handleInput();
             handleMouse();
+
+            auto fenceResult = vkWaitForFences(device, 1, &drawFences[currentFrame], VK_TRUE, UINT64_MAX);
+            vkResetFences(device, 1, &drawFences[currentFrame]);
+            auto result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentCompleteSemaphores[currentFrame], nullptr, &imageIndex);
+            if (result != VK_SUCCESS) {
+                throw std::runtime_error("failed to acquire next image\n");
+            }
+
+            vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+            recordCommandBuffer();
+
+            VkPipelineStageFlags waitDestinationStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+            VkSubmitInfo submitInfo = {};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = &presentCompleteSemaphores[currentFrame];
+            submitInfo.pSignalSemaphores = &renderedFinishedSemaphores[imageIndex];
+            submitInfo.pWaitDstStageMask = &waitDestinationStageMask;
+            VkResult v = vkQueueSubmit(queue.queue, 1, &submitInfo, drawFences[currentFrame]);
+
+            VkPresentInfoKHR presentInfo = {};
+            presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            presentInfo.pImageIndices = &imageIndex;
+            presentInfo.waitSemaphoreCount = 1;
+            presentInfo.pWaitSemaphores = &renderedFinishedSemaphores[imageIndex];
+            presentInfo.swapchainCount = 1;
+            presentInfo.pSwapchains = &swapchain;
+            
+            vkQueuePresentKHR(queue.queue, &presentInfo);
+
+            currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
     }
 };
