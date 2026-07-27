@@ -1,4 +1,5 @@
 #include "../include/core.h"
+#include <GL/gl.h>
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cstdint>
@@ -11,6 +12,9 @@
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include "glm/glm.hpp"
+
+#define CGLTF_IMPLEMENTATION
+#include "cgltf.h"
 
 class Core {
     public:
@@ -48,21 +52,8 @@ class Core {
     VkDeviceMemory vertexBufferMemory;
     VkDeviceMemory indexBufferMemory;
 
-    std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
-
-    {{1.5f, 1.5f}, {1.0f, 0.0f, 0.0f}},
-    {{2.5f, 1.5f}, {0.0f, 1.0f, 0.0f}},
-    {{2.5f, 2.5f}, {0.0f, 0.0f, 1.0f}},
-    {{1.5f, 2.5f}, {1.0f, 1.0f, 1.0f}}
-    };
-    std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0,
-    4, 5, 6, 6, 7, 4
-    };
+    std::vector<glm::vec3> vertices;
+    std::vector<uint32_t> indices;
 
     std::vector<VkSemaphore> presentCompleteSemaphores;
     std::vector<VkSemaphore> renderedFinishedSemaphores;
@@ -93,6 +84,7 @@ class Core {
         createDevice();
         createSwapchain();
         createSwapchainImages();
+        loadModel();
         createDescriptorPool();
         allocateDescriptorSets();
         createPipeline();
@@ -103,6 +95,91 @@ class Core {
         mainLoop();
 
     }
+
+    void loadModel() {
+        
+        cgltf_options options = {};
+        cgltf_data* data = NULL;
+        cgltf_result result = cgltf_parse_file(&options, "../assets/jax.glb", &data);
+        if (result == cgltf_result_success)
+            {}
+
+        result =
+            cgltf_load_buffers(
+                &options,
+                data,
+                "../assets/jax.glb"
+            );
+                
+        
+        for (int meshIndex = 0; meshIndex<data->meshes_count; meshIndex++) {
+            uint32_t globalIndex = vertices.size();
+
+            printf("primitives - %d\n", data->meshes[meshIndex].primitives_count);
+            int attributeCount = data->meshes[meshIndex].primitives[0].attributes_count;
+            cgltf_accessor indexThing = *data->meshes[meshIndex].primitives[0].indices;
+
+            cgltf_buffer_view *bview = indexThing.buffer_view;
+            
+            uint8_t *d = static_cast<uint8_t*>(bview->buffer->data);
+
+            cgltf_size count = indexThing.count;
+            switch (indexThing.component_type) {
+                case cgltf_component_type_r_8u:
+                    printf("hey");
+                    break;
+
+                case cgltf_component_type_r_16u:
+                    printf("heyy");
+                    
+                    break;
+
+                case cgltf_component_type_r_32u:
+                    for (int j=0;j<count;j++) {
+                        size_t byteOffset =
+                        bview->offset +
+                        indexThing.offset +
+                        j * indexThing.stride;
+
+                        uint32_t index;
+                        memcpy(&index, d + byteOffset, sizeof(index));
+                        indices.push_back(index+globalIndex);
+                    }
+        
+                    
+                    break;
+            }
+            
+
+
+            for (int attributeIndex = 0 ; attributeIndex< attributeCount ; attributeIndex++) {
+                cgltf_attribute att = data->meshes[meshIndex].primitives[0].attributes[attributeIndex];
+                if (att.type == cgltf_attribute_type_position) {
+                    cgltf_accessor acc = *att.data;
+                    cgltf_buffer_view *bview = acc.buffer_view;
+                    void*d = bview->buffer->data;
+
+                    cgltf_size count = acc.count;
+                    if (acc.type != 3) continue;
+                    for (int j=0;j<count;j++) {
+                        int idx = bview->offset+acc.offset+(acc.stride*j);
+                        glm::vec3 vertcoord;
+                        memcpy(&vertcoord, (uint8_t*)d + idx, sizeof(glm::vec3));
+                        vertices.push_back(vertcoord);
+                    }
+                    // printf("t %lu and %lu\n", acc.count, vertices.size());
+                }
+                
+
+            }
+        
+            
+        }
+
+        
+        
+    }
+
     void createWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -460,23 +537,24 @@ class Core {
         VkVertexInputBindingDescription bindingDescription = {};
         bindingDescription.binding = 0;
         bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        bindingDescription.stride = sizeof(Vertex);
+        bindingDescription.stride = sizeof(glm::vec3);
 
         std::vector<VkVertexInputAttributeDescription> attributeDescriptors;
         
         VkVertexInputAttributeDescription attributeDescriptionPos = {};
         attributeDescriptionPos.binding = 0;
         attributeDescriptionPos.location = 0;
-        attributeDescriptionPos.format = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptionPos.offset = offsetof(Vertex, pos);
+        attributeDescriptionPos.format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptionPos.offset = 0;
 
-        VkVertexInputAttributeDescription attributeDescriptionColor = {};
-        attributeDescriptionColor.binding = 0;
-        attributeDescriptionColor.location = 1;
-        attributeDescriptionColor.format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptionColor.offset = offsetof(Vertex, color);
+        // VkVertexInputAttributeDescription attributeDescriptionColor = {};
+        // attributeDescriptionColor.binding = 0;
+        // attributeDescriptionColor.location = 1;
+        // attributeDescriptionColor.format = VK_FORMAT_R32G32B32_SFLOAT;
+        // attributeDescriptionColor.offset = offsetof(Vertex, color);
+
         attributeDescriptors.push_back(attributeDescriptionPos);
-        attributeDescriptors.push_back(attributeDescriptionColor);
+        // attributeDescriptors.push_back(attributeDescriptionColor);
 
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -713,11 +791,13 @@ class Core {
 
         vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, &vertexBuffer, &offset);
 
-        vkCmdBindIndexBuffer(commandBuffers[currentFrame], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffers[currentFrame], indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,1, &descriptorSets[currentFrame], 0, nullptr);
 
-        vkCmdDrawIndexed(commandBuffers[currentFrame], indices.size(), 2, 0, 0, 0);
+        // vkCmdDraw(commandBuffers[currentFrame], vertices.size(), 1, 0, 0);
+
+        vkCmdDrawIndexed(commandBuffers[currentFrame], indices.size(), 1, 0, 0, 0);
 
         vkCmdEndRendering(commandBuffers[currentFrame]);    
 

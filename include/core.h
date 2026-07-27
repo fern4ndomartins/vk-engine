@@ -8,6 +8,10 @@
 #include <vector>
 #include "glm/glm.hpp"
 
+#define TINYGLTF_IMPLEMENTATION
+
+#define TINYGLTF3_ENABLE_FS
+
 typedef struct  {
     int graphicsQueueIndex;
     VkQueue queue;

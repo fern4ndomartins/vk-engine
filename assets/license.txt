@@ -1,0 +1,11 @@
+Model Information:
+* title:	Jax
+* source:	https://sketchfab.com/3d-models/jax-f074d51aa6f94f8f922bf45b7fe662a0
+* author:	Shedletsky_2 (https://sketchfab.com/Shedletsky_2)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Jax" (https://sketchfab.com/3d-models/jax-f074d51aa6f94f8f922bf45b7fe662a0) by Shedletsky_2 (https://sketchfab.com/Shedletsky_2) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
