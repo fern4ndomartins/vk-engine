@@ -9,15 +9,14 @@
 #include <vector>
 #include <vulkan/vulkan_core.h>
 #include <fstream>
-
-
-
+#include <glm/gtc/matrix_transform.hpp>
+#include "glm/glm.hpp"
 
 class Core {
     public:
     GLFWwindow* window;
-    const int WIDTH = 900; 
-    const int HEIGHT = 500; 
+    const int WIDTH = 1000; 
+    const int HEIGHT = 700; 
     const int MAX_FRAMES_IN_FLIGHT = 2;
     VkInstance instance;
 
@@ -32,6 +31,14 @@ class Core {
     VkDevice device;
 
     GraphicsQueue queue;
+
+    VkDescriptorPool descriptorPool;
+    VkDescriptorSetLayout descriptorLayout;
+    std::vector<VkDescriptorSetLayout> layouts;
+    std::vector<VkDescriptorSet> descriptorSets;
+    std::vector<VkBuffer> uboBuffers;
+    std::vector<VkDeviceMemory> uboMemories;
+    std::vector<void*> uboDatas;
 
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
@@ -67,6 +74,15 @@ class Core {
     std::vector<VkCommandBuffer> commandBuffers;
     VkCommandPool commandPool;
 
+    UniformBufferObject ubo{};
+
+    float posx = 0;
+    float posy = 0;
+    float posz = 0;
+
+    double xpos = 0.0;
+    double ypos = 0.0;
+
     void runApp() {
         initEngine();
     }
@@ -77,6 +93,8 @@ class Core {
         createDevice();
         createSwapchain();
         createSwapchainImages();
+        createDescriptorPool();
+        allocateDescriptorSets();
         createPipeline();
         createVertexAndIndexBuffers();
         createSyncObjects();
@@ -88,8 +106,10 @@ class Core {
     void createWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
         window = glfwCreateWindow(WIDTH, HEIGHT, "vk engine", nullptr, nullptr);
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);    
+        glfwSetCursorPos(window, xpos, ypos);
+
     }
     void createInstance() {
 
@@ -301,6 +321,79 @@ class Core {
         return buffer;
     }
 
+    void createDescriptorPool() {
+        VkDescriptorPoolSize poolSize = {};
+        poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+        VkDescriptorPoolCreateInfo descriptorPoolInfo = {};
+        descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        descriptorPoolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
+        descriptorPoolInfo.poolSizeCount = 1;
+        descriptorPoolInfo.pPoolSizes = &poolSize;
+        descriptorPoolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+
+        vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool);
+    }
+
+    void allocateDescriptorSets() {
+        VkDescriptorSetLayoutBinding uboDescriptorLayoutBinding = {};
+        uboDescriptorLayoutBinding.binding = 0;
+        uboDescriptorLayoutBinding.descriptorCount = 1;
+        uboDescriptorLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboDescriptorLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+        VkDescriptorSetLayoutCreateInfo descriptorLayoutInfo = {};
+        descriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        descriptorLayoutInfo.bindingCount = 1;
+        descriptorLayoutInfo.pBindings = &uboDescriptorLayoutBinding;
+        vkCreateDescriptorSetLayout(device, &descriptorLayoutInfo, nullptr, &descriptorLayout);
+
+        for (int i = 0; i<MAX_FRAMES_IN_FLIGHT; i++) {
+            layouts.push_back(descriptorLayout);        
+        }
+
+        uboBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        uboMemories.resize(MAX_FRAMES_IN_FLIGHT);
+        uboDatas.resize(MAX_FRAMES_IN_FLIGHT);
+        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+
+        VkDescriptorSetAllocateInfo allocateDescriptorsInfo = {};
+        allocateDescriptorsInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        allocateDescriptorsInfo.descriptorPool = descriptorPool;
+        allocateDescriptorsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocateDescriptorsInfo.pSetLayouts = layouts.data();
+        vkAllocateDescriptorSets(device, &allocateDescriptorsInfo, descriptorSets.data());
+
+        ubo.model = glm::mat4(1.0f);
+        ubo.view = lookAt(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        ubo.proj = glm::perspective(glm::radians(45.0f), static_cast<float>(extent.width) / static_cast<float>(extent.height), 0.1f, 1000.0f);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,sizeof(UniformBufferObject), &uboBuffers[i], &uboMemories[i]);
+            vkMapMemory(device, uboMemories[i], 0, sizeof(UniformBufferObject), 0, &uboDatas[i]);
+            memcpy(uboDatas[i], &ubo, sizeof(ubo));
+            // vkUnmapMemory(device, uboMemories[i]);
+
+            VkDescriptorBufferInfo bufferInfo = {};
+            bufferInfo.buffer = uboBuffers[i];
+            bufferInfo.offset = 0;
+            bufferInfo.range = sizeof(UniformBufferObject);
+
+            VkWriteDescriptorSet writeDesc = {};
+            writeDesc.descriptorCount = 1;
+            writeDesc.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writeDesc.pBufferInfo = &bufferInfo;
+            writeDesc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writeDesc.dstBinding = 0; 
+            writeDesc.dstSet = descriptorSets[i]; 
+
+            vkUpdateDescriptorSets(device, 1, &writeDesc, 0, nullptr);
+        }
+
+
+    }
+
     void createPipeline() {
         auto vertShaderCode = readFile("shaders/vert.spv");
         auto fragShaderCode = readFile("shaders/frag.spv");
@@ -355,8 +448,8 @@ class Core {
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 0;
-        // pipelineLayoutInfo.pSetLayouts = descriptorSetLayout;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &layouts[0];
         pipelineLayoutInfo.pushConstantRangeCount = 0;
         pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -622,6 +715,8 @@ class Core {
 
         vkCmdBindIndexBuffer(commandBuffers[currentFrame], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
+        vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,1, &descriptorSets[currentFrame], 0, nullptr);
+
         vkCmdDrawIndexed(commandBuffers[currentFrame], indices.size(), 2, 0, 0, 0);
 
         vkCmdEndRendering(commandBuffers[currentFrame]);    
@@ -634,10 +729,16 @@ class Core {
     }
 
     void handleInput() {
+        if(glfwGetKey(window, GLFW_KEY_A)) ubo.model = glm::translate(ubo.model, glm::vec3(posx+0.002, posy, posz));
+        if(glfwGetKey(window, GLFW_KEY_D)) ubo.model = glm::translate(ubo.model, glm::vec3(posx-0.002, posy, posz));
+        if(glfwGetKey(window, GLFW_KEY_S)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy, posz-0.002));
+        if(glfwGetKey(window, GLFW_KEY_W)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy, posz+0.002));
 
     }
 
     void handleMouse() {
+        glfwGetCursorPos(window, &xpos, &ypos);
+        ubo.view = lookAt(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f+xpos * 0.001, 0.0f + ypos*0.001, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
     }
 
@@ -647,6 +748,9 @@ class Core {
             
             handleInput();
             handleMouse();
+
+            memcpy(uboDatas[currentFrame], &ubo, sizeof(UniformBufferObject));
+
 
             auto fenceResult = vkWaitForFences(device, 1, &drawFences[currentFrame], VK_TRUE, UINT64_MAX);
             vkResetFences(device, 1, &drawFences[currentFrame]);
