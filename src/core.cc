@@ -126,11 +126,20 @@ class Core {
             cgltf_size count = indexThing.count;
             switch (indexThing.component_type) {
                 case cgltf_component_type_r_8u:
-                    printf("hey");
-                    break;
+                    for (int j = 0; j < count; j++) {
+                        size_t byteOffset = bview->offset + indexThing.offset + j * indexThing.stride;
+                        uint8_t index;
+                        memcpy(&index, d + byteOffset, sizeof(index));
+                        indices.push_back(static_cast<uint32_t>(index) + globalIndex); // widened here
+                    }
 
                 case cgltf_component_type_r_16u:
-                    printf("heyy");
+                    for (int j = 0; j < count; j++) {
+                        size_t byteOffset = bview->offset + indexThing.offset + j * indexThing.stride;
+                        uint16_t index;
+                        memcpy(&index, d + byteOffset, sizeof(index));
+                        indices.push_back(static_cast<uint32_t>(index) + globalIndex); // widened here
+                    }
                     
                     break;
 
@@ -572,8 +581,8 @@ class Core {
         rasterizationInfo.depthClampEnable = VK_FALSE;
         rasterizationInfo.rasterizerDiscardEnable = VK_FALSE;
         rasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+        rasterizationInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizationInfo.depthBiasEnable = VK_FALSE;
         rasterizationInfo.lineWidth = 1.0f;
         rasterizationInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -813,6 +822,8 @@ class Core {
         if(glfwGetKey(window, GLFW_KEY_D)) ubo.model = glm::translate(ubo.model, glm::vec3(posx-0.002, posy, posz));
         if(glfwGetKey(window, GLFW_KEY_S)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy, posz-0.002));
         if(glfwGetKey(window, GLFW_KEY_W)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy, posz+0.002));
+        if(glfwGetKey(window, GLFW_KEY_E)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy+0.002, posz));
+        if(glfwGetKey(window, GLFW_KEY_F)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy-0.002, posz));
 
     }
 
