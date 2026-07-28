@@ -17,12 +17,6 @@ typedef struct  {
     VkQueue queue;
 } GraphicsQueue;
 
-struct Vertex
-{
-    glm::vec2 pos;
-    glm::vec3 color;
-};
-
 struct UniformBufferObject
 {
     glm::mat4 model;

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <glm/ext/matrix_float4x4.hpp>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -12,6 +13,7 @@
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include "glm/glm.hpp"
+#include "../include/model.h"
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
@@ -53,6 +55,8 @@ class Core {
     VkDeviceMemory indexBufferMemory;
 
     std::vector<glm::vec3> vertices;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec2> uvs;
     std::vector<uint32_t> indices;
 
     std::vector<VkSemaphore> presentCompleteSemaphores;
@@ -67,12 +71,19 @@ class Core {
 
     UniformBufferObject ubo{};
 
-    float posx = 0;
-    float posy = 0;
-    float posz = 0;
+    glm::vec3 cameraPos{0.0f, 0.0f, 3.0f};
+    glm::vec3 cameraFront{0.0f, 0.0f, -1.0f};
+    glm::vec3 cameraUp{0.0f, 1.0f, 0.0f};
+    float yaw = -90.0f, pitch = 0.0f;
 
-    double xpos = 0.0;
-    double ypos = 0.0;
+    double lastFrameTime = 0.0;
+    float deltaTime = 0.0f;
+
+    double xpos;
+    double ypos;
+
+    std::vector<Model> models; // this will hold vertex and index buffer, index in the ssbo
+    std::vector<glm::mat4> instances; // this is the model matrices, should be placed in the SSBO
 
     void runApp() {
         initEngine();
@@ -84,7 +95,7 @@ class Core {
         createDevice();
         createSwapchain();
         createSwapchainImages();
-        loadModel();
+        loadModels();
         createDescriptorPool();
         allocateDescriptorSets();
         createPipeline();
@@ -96,94 +107,15 @@ class Core {
 
     }
 
-    void loadModel() {
+    void loadModels() {
+
+        Model model("../assets/jax.glb");
         
-        cgltf_options options = {};
-        cgltf_data* data = NULL;
-        cgltf_result result = cgltf_parse_file(&options, "../assets/jax.glb", &data);
-        if (result == cgltf_result_success)
-            {}
 
-        result =
-            cgltf_load_buffers(
-                &options,
-                data,
-                "../assets/jax.glb"
-            );
-                
-        
-        for (int meshIndex = 0; meshIndex<data->meshes_count; meshIndex++) {
-            uint32_t globalIndex = vertices.size();
-
-            printf("primitives - %d\n", data->meshes[meshIndex].primitives_count);
-            int attributeCount = data->meshes[meshIndex].primitives[0].attributes_count;
-            cgltf_accessor indexThing = *data->meshes[meshIndex].primitives[0].indices;
-
-            cgltf_buffer_view *bview = indexThing.buffer_view;
-            
-            uint8_t *d = static_cast<uint8_t*>(bview->buffer->data);
-
-            cgltf_size count = indexThing.count;
-            switch (indexThing.component_type) {
-                case cgltf_component_type_r_8u:
-                    for (int j = 0; j < count; j++) {
-                        size_t byteOffset = bview->offset + indexThing.offset + j * indexThing.stride;
-                        uint8_t index;
-                        memcpy(&index, d + byteOffset, sizeof(index));
-                        indices.push_back(static_cast<uint32_t>(index) + globalIndex); // widened here
-                    }
-
-                case cgltf_component_type_r_16u:
-                    for (int j = 0; j < count; j++) {
-                        size_t byteOffset = bview->offset + indexThing.offset + j * indexThing.stride;
-                        uint16_t index;
-                        memcpy(&index, d + byteOffset, sizeof(index));
-                        indices.push_back(static_cast<uint32_t>(index) + globalIndex); // widened here
-                    }
-                    
-                    break;
-
-                case cgltf_component_type_r_32u:
-                    for (int j=0;j<count;j++) {
-                        size_t byteOffset =
-                        bview->offset +
-                        indexThing.offset +
-                        j * indexThing.stride;
-
-                        uint32_t index;
-                        memcpy(&index, d + byteOffset, sizeof(index));
-                        indices.push_back(index+globalIndex);
-                    }
-        
-                    
-                    break;
-            }
-            
-
-
-            for (int attributeIndex = 0 ; attributeIndex< attributeCount ; attributeIndex++) {
-                cgltf_attribute att = data->meshes[meshIndex].primitives[0].attributes[attributeIndex];
-                if (att.type == cgltf_attribute_type_position) {
-                    cgltf_accessor acc = *att.data;
-                    cgltf_buffer_view *bview = acc.buffer_view;
-                    void*d = bview->buffer->data;
-
-                    cgltf_size count = acc.count;
-                    if (acc.type != 3) continue;
-                    for (int j=0;j<count;j++) {
-                        int idx = bview->offset+acc.offset+(acc.stride*j);
-                        glm::vec3 vertcoord;
-                        memcpy(&vertcoord, (uint8_t*)d + idx, sizeof(glm::vec3));
-                        vertices.push_back(vertcoord);
-                    }
-                    // printf("t %lu and %lu\n", acc.count, vertices.size());
-                }
-                
-
-            }
+        printf("sizes: %zu %zu %zu\n", vertices.size(), normals.size(), uvs.size());
         
             
-        }
+        
 
         
         
@@ -194,7 +126,7 @@ class Core {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         window = glfwCreateWindow(WIDTH, HEIGHT, "vk engine", nullptr, nullptr);
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);    
-        glfwSetCursorPos(window, xpos, ypos);
+        glfwSetCursorPos(window, 0, 0);
 
     }
     void createInstance() {
@@ -817,27 +749,49 @@ class Core {
         }
     }
 
-    void handleInput() {
-        if(glfwGetKey(window, GLFW_KEY_A)) ubo.model = glm::translate(ubo.model, glm::vec3(posx+0.002, posy, posz));
-        if(glfwGetKey(window, GLFW_KEY_D)) ubo.model = glm::translate(ubo.model, glm::vec3(posx-0.002, posy, posz));
-        if(glfwGetKey(window, GLFW_KEY_S)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy, posz-0.002));
-        if(glfwGetKey(window, GLFW_KEY_W)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy, posz+0.002));
-        if(glfwGetKey(window, GLFW_KEY_E)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy+0.002, posz));
-        if(glfwGetKey(window, GLFW_KEY_F)) ubo.model = glm::translate(ubo.model, glm::vec3(posx, posy-0.002, posz));
+    void handleInput(float deltaTime) {
+        float speed = 25.0f * deltaTime;
+        glm::vec3 right = glm::normalize(glm::cross(cameraFront, cameraUp));
+        if (glfwGetKey(window, GLFW_KEY_W)) cameraPos += speed * cameraFront;
+        if (glfwGetKey(window, GLFW_KEY_S)) cameraPos -= speed * cameraFront;
+        if (glfwGetKey(window, GLFW_KEY_A)) cameraPos -= speed * right;
+        if (glfwGetKey(window, GLFW_KEY_D)) cameraPos += speed * right;
+        if (glfwGetKey(window, GLFW_KEY_E)) cameraPos += speed * cameraUp;
+        if (glfwGetKey(window, GLFW_KEY_F)) cameraPos -= speed * cameraUp;
 
     }
 
     void handleMouse() {
-        glfwGetCursorPos(window, &xpos, &ypos);
-        ubo.view = lookAt(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f+xpos * 0.001, 0.0f + ypos*0.001, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        
+        double newX, newY;
+        glfwGetCursorPos(window, &newX, &newY);
+        double dx = newX - xpos, dy = ypos - newY; // deltas, not absolute
+        xpos = newX; ypos = newY;
 
+        float sensitivity = 0.1f;
+        yaw   += dx * sensitivity;
+        pitch -= dy * sensitivity;
+        pitch = std::clamp(pitch, -89.0f, 89.0f);
+
+        glm::vec3 dir;
+        dir.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+        dir.y = sin(glm::radians(pitch));
+        dir.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+        cameraFront = glm::normalize(dir);
+
+        ubo.view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
     }
 
     void mainLoop() {
+        lastFrameTime = glfwGetTime();
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             
-            handleInput();
+            double currentTime = glfwGetTime();
+            deltaTime = static_cast<float>(currentTime - lastFrameTime);
+            lastFrameTime = currentTime;
+
+            handleInput(deltaTime);
             handleMouse();
 
             memcpy(uboDatas[currentFrame], &ubo, sizeof(UniformBufferObject));
