@@ -16,7 +16,7 @@
 #include "../include/model.h"
 
 #define CGLTF_IMPLEMENTATION
-#include "cgltf.h"
+#include "../include/cgltf.h"
 
 class Core {
     public:
@@ -115,8 +115,6 @@ class Core {
         printf("sizes: %zu %zu %zu\n", vertices.size(), normals.size(), uvs.size());
         
             
-        
-
         
         
     }
