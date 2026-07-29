@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <glm/ext/matrix_float4x4.hpp>
+#include <glm/ext/matrix_transform.hpp>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -49,15 +50,15 @@ class Core {
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 
-    VkBuffer vertexBuffer;
-    VkBuffer indexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-    VkDeviceMemory indexBufferMemory;
+    // VkBuffer vertexBuffer;
+    // VkBuffer indexBuffer;
+    // VkDeviceMemory vertexBufferMemory;
+    // VkDeviceMemory indexBufferMemory;
 
-    std::vector<glm::vec3> vertices;
-    std::vector<glm::vec3> normals;
-    std::vector<glm::vec2> uvs;
-    std::vector<uint32_t> indices;
+    // std::vector<glm::vec3> vertices;
+    // std::vector<glm::vec3> normals;
+    // std::vector<glm::vec2> uvs;
+    // std::vector<uint32_t> indices;
 
     std::vector<VkSemaphore> presentCompleteSemaphores;
     std::vector<VkSemaphore> renderedFinishedSemaphores;
@@ -85,6 +86,8 @@ class Core {
     std::vector<Model> models; // this will hold vertex and index buffer, index in the ssbo
     std::vector<glm::mat4> instances; // this is the model matrices, should be placed in the SSBO
 
+    Model model;
+
     void runApp() {
         initEngine();
     }
@@ -99,7 +102,6 @@ class Core {
         createDescriptorPool();
         allocateDescriptorSets();
         createPipeline();
-        createVertexAndIndexBuffers();
         createSyncObjects();
         createCommandBufferPool();
         allocateCommandBuffers();
@@ -108,13 +110,16 @@ class Core {
     }
 
     void loadModels() {
-
-        Model model("../assets/jax.glb");
         
-
-        printf("sizes: %zu %zu %zu\n", vertices.size(), normals.size(), uvs.size());
+        model.load("../assets/jax.glb");
+        // model.T = glm::translate(glm::mat4(1), glm::vec3(1, 1, 1));
+        // model.R = glm::rotate(glm::mat4(1), 90.0f,glm::vec3(1));
+        // model.S = glm::scale(glm::mat4(1), glm::vec3(1));
+        // printf("sizes: %zu %zu %zu\n", vertices.size(), normals.size(), uvs.size());
         
-            
+        createVertexAndIndexBuffers(&model.vertexBuffer,&model.indexBuffer,model.positions,model.indices);
+        
+        models.push_back(model);    
         
         
     }
@@ -592,9 +597,11 @@ class Core {
         vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
     }
 
-    void createVertexAndIndexBuffers() {
-        createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.size()*sizeof(vertices[0]), &vertexBuffer, &vertexBufferMemory);
-        createBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indices.size()*sizeof(indices[0]), &indexBuffer, &indexBufferMemory);
+    void createVertexAndIndexBuffers(VkBuffer *vertexBuffer, VkBuffer *indexBuffer, std::vector<glm::vec3>& vertices, std::vector<uint32_t>& indices) {
+        VkDeviceMemory vertexBufferMemory;
+        VkDeviceMemory indexBufferMemory;
+        createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.size()*sizeof(vertices[0]), vertexBuffer, &vertexBufferMemory);
+        createBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indices.size()*sizeof(indices[0]), indexBuffer, &indexBufferMemory);
         void * vertexData;
         void * indexData;
         vkMapMemory(device, vertexBufferMemory, 0, vertices.size()*sizeof(vertices[0]), 0, &vertexData);
@@ -603,6 +610,8 @@ class Core {
         memcpy(indexData, indices.data(), indices.size()*sizeof(indices[0]));
         vkUnmapMemory(device, vertexBufferMemory);
         vkUnmapMemory(device, indexBufferMemory);
+
+        // MUST handle cleanup eventually -> freeing this memory with VkFreeMemory() or something
     }
 
     void createSyncObjects() {
@@ -717,31 +726,33 @@ class Core {
         }
 
         transition_image_layout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, {}, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        
         vkCmdBeginRendering(commandBuffers[currentFrame], &renderingInfo);
-
         vkCmdBindPipeline(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
         vkCmdSetViewport(commandBuffers[currentFrame], 0, 1, &viewport);
-        
         vkCmdSetScissor(commandBuffers[currentFrame], 0, 1, &scissor);
-
         VkDeviceSize offset = 0;
+    
+        for (Model mod : models){
+            // here just need to also push 
+            ubo.model = glm::translate(glm::mat4(1), glm::vec3(-6, 1, 1));
+            memcpy(uboDatas[currentFrame], &ubo, sizeof(UniformBufferObject));
 
-        vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, &vertexBuffer, &offset);
+            vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, &mod.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(commandBuffers[currentFrame], mod.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,1, &descriptorSets[currentFrame], 0, nullptr);
+            vkCmdDrawIndexed(commandBuffers[currentFrame], mod.indices.size(), 1, 0, 0, 0);
 
-        vkCmdBindIndexBuffer(commandBuffers[currentFrame], indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            ubo.model = glm::translate(glm::mat4(1), glm::vec3(9, 1, 1));
+            memcpy(uboDatas[currentFrame], &ubo, sizeof(UniformBufferObject));
 
-        vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,1, &descriptorSets[currentFrame], 0, nullptr);
 
-        // vkCmdDraw(commandBuffers[currentFrame], vertices.size(), 1, 0, 0);
-
-        vkCmdDrawIndexed(commandBuffers[currentFrame], indices.size(), 1, 0, 0, 0);
-
+            vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, &mod.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(commandBuffers[currentFrame], mod.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,1, &descriptorSets[currentFrame], 0, nullptr);
+            vkCmdDrawIndexed(commandBuffers[currentFrame], mod.indices.size(), 1, 0, 0, 0);
+        }
         vkCmdEndRendering(commandBuffers[currentFrame]);    
-
         transition_image_layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, {}, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-
         if (vkEndCommandBuffer(commandBuffers[currentFrame]) != VK_SUCCESS) {
             throw std::runtime_error("failed to record command buffer!");
         }

@@ -3,7 +3,7 @@
 #include <cstring>
 #include <stdexcept>
 
-Model::Model(const char* filepath) {
+void Model::load(const char* filepath) {
     cgltf_options options = {};
     cgltf_data* data = NULL;
     cgltf_result result = cgltf_parse_file(&options, filepath, &data);

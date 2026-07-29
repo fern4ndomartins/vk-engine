@@ -11,6 +11,10 @@ class Model {
     
     uint32_t index;
 
+    glm::mat4 T;
+    glm::mat4 R;
+    glm::mat4 S;
+
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
 
@@ -22,7 +26,7 @@ class Model {
     std::vector<glm::vec2> uvs;
 
     std::vector<uint32_t> indices;
-    Model(const char* filepath);
+    void load(const char* filepath);
 
 
 
