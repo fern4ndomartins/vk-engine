@@ -17,9 +17,14 @@ typedef struct  {
     VkQueue queue;
 } GraphicsQueue;
 
-struct UniformBufferObject
+struct Camera
 {
-    glm::mat4 model;
     glm::mat4 view;
     glm::mat4 proj;
+};
+
+struct Vertex {
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 uv;
 };

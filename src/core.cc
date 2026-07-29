@@ -2,6 +2,7 @@
 #include <GL/gl.h>
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -18,6 +19,7 @@
 
 #define CGLTF_IMPLEMENTATION
 #include "../include/cgltf.h"
+
 
 class Core {
     public:
@@ -41,11 +43,17 @@ class Core {
 
     VkDescriptorPool descriptorPool;
     VkDescriptorSetLayout descriptorLayout;
-    std::vector<VkDescriptorSetLayout> layouts;
-    std::vector<VkDescriptorSet> descriptorSets;
-    std::vector<VkBuffer> uboBuffers;
-    std::vector<VkDeviceMemory> uboMemories;
-    std::vector<void*> uboDatas;
+    VkDescriptorSetLayout descriptorLayoutCamera;
+    std::vector<VkDescriptorSetLayout> ssboLayouts;
+    std::vector<VkDescriptorSetLayout> cameraLayouts;
+    std::vector<VkDescriptorSet> ssboDescriptorSets;
+    std::vector<VkDescriptorSet> cameraDescriptorSets;
+    std::vector<VkBuffer> ssboBuffers;
+    std::vector<VkDeviceMemory> ssboMemories;
+    std::vector<void*> ssboDatas;
+    std::vector<VkBuffer> cameraBuffers;
+    std::vector<VkDeviceMemory> cameraMemories;
+    std::vector<void*> cameraDatas;
 
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
@@ -70,7 +78,7 @@ class Core {
     std::vector<VkCommandBuffer> commandBuffers;
     VkCommandPool commandPool;
 
-    UniformBufferObject ubo{};
+    Camera camera{};
 
     glm::vec3 cameraPos{0.0f, 0.0f, 3.0f};
     glm::vec3 cameraFront{0.0f, 0.0f, -1.0f};
@@ -88,6 +96,8 @@ class Core {
 
     Model model;
 
+
+
     void runApp() {
         initEngine();
     }
@@ -99,6 +109,7 @@ class Core {
         createSwapchain();
         createSwapchainImages();
         loadModels();
+        createTextures();
         createDescriptorPool();
         allocateDescriptorSets();
         createPipeline();
@@ -109,6 +120,10 @@ class Core {
 
     }
 
+    void createTextures() {
+        
+    }
+
     void loadModels() {
         
         model.load("../assets/jax.glb");
@@ -116,8 +131,20 @@ class Core {
         // model.R = glm::rotate(glm::mat4(1), 90.0f,glm::vec3(1));
         // model.S = glm::scale(glm::mat4(1), glm::vec3(1));
         // printf("sizes: %zu %zu %zu\n", vertices.size(), normals.size(), uvs.size());
-        
-        createVertexAndIndexBuffers(&model.vertexBuffer,&model.indexBuffer,model.positions,model.indices);
+        instances.push_back(glm::mat4(1.0f));
+        // instances.push_back(glm::translate(glm::mat4(1), glm::vec3(-5)));
+        model.index = 0;
+        printf("%zu, %zu\n", model.positions.size(), model.normals.size());
+        std::vector<Vertex> vertexData;
+        for (int idx=0; idx<model.positions.size();idx++) {
+            Vertex v;
+            v.position = model.positions[idx];
+            v.normal = model.normals[idx];
+            v.uv = model.uvs[idx];
+            vertexData.push_back(v);
+        }
+
+        createVertexAndIndexBuffers(&model.vertexBuffer,&model.indexBuffer,vertexData,model.indices);
         
         models.push_back(model);    
         
@@ -343,63 +370,123 @@ class Core {
     }
 
     void createDescriptorPool() {
-        VkDescriptorPoolSize poolSize = {};
-        poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
-        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        VkDescriptorPoolSize poolSizes[] = {
+    {
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT)
+        },
+        {
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT)
+        }
+        };
 
         VkDescriptorPoolCreateInfo descriptorPoolInfo = {};
         descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        descriptorPoolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
-        descriptorPoolInfo.poolSizeCount = 1;
-        descriptorPoolInfo.pPoolSizes = &poolSize;
+        descriptorPoolInfo.maxSets = MAX_FRAMES_IN_FLIGHT*2;
+        descriptorPoolInfo.poolSizeCount = 2;
+        descriptorPoolInfo.pPoolSizes = poolSizes;
         descriptorPoolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
         vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool);
     }
 
     void allocateDescriptorSets() {
-        VkDescriptorSetLayoutBinding uboDescriptorLayoutBinding = {};
-        uboDescriptorLayoutBinding.binding = 0;
-        uboDescriptorLayoutBinding.descriptorCount = 1;
-        uboDescriptorLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        uboDescriptorLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        VkDescriptorSetLayoutBinding ssboDescriptorLayoutBinding = {};
+        ssboDescriptorLayoutBinding.binding = 0;
+        ssboDescriptorLayoutBinding.descriptorCount = 1;
+        ssboDescriptorLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ;
+        ssboDescriptorLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
         VkDescriptorSetLayoutCreateInfo descriptorLayoutInfo = {};
         descriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         descriptorLayoutInfo.bindingCount = 1;
-        descriptorLayoutInfo.pBindings = &uboDescriptorLayoutBinding;
+        descriptorLayoutInfo.pBindings = &ssboDescriptorLayoutBinding;
         vkCreateDescriptorSetLayout(device, &descriptorLayoutInfo, nullptr, &descriptorLayout);
+        
+        VkDescriptorSetLayoutBinding cameraDescriptorLayoutBinding = {};
+        cameraDescriptorLayoutBinding.binding = 0;
+        cameraDescriptorLayoutBinding.descriptorCount = 1;
+        cameraDescriptorLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        cameraDescriptorLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+        VkDescriptorSetLayoutCreateInfo cameradescriptorLayoutInfo = {};
+        cameradescriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        cameradescriptorLayoutInfo.bindingCount = 1;
+        cameradescriptorLayoutInfo.pBindings = &cameraDescriptorLayoutBinding;
+        vkCreateDescriptorSetLayout(device, &cameradescriptorLayoutInfo, nullptr, &descriptorLayoutCamera);
 
         for (int i = 0; i<MAX_FRAMES_IN_FLIGHT; i++) {
-            layouts.push_back(descriptorLayout);        
+            ssboLayouts.push_back(descriptorLayout);        
         }
 
-        uboBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        uboMemories.resize(MAX_FRAMES_IN_FLIGHT);
-        uboDatas.resize(MAX_FRAMES_IN_FLIGHT);
-        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        for (int i = 0; i<MAX_FRAMES_IN_FLIGHT; i++) {
+            cameraLayouts.push_back(descriptorLayoutCamera);        
+        }
+        
+        ssboBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        ssboMemories.resize(MAX_FRAMES_IN_FLIGHT);
+        ssboDatas.resize(MAX_FRAMES_IN_FLIGHT);
+        cameraBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        cameraMemories.resize(MAX_FRAMES_IN_FLIGHT);
+        cameraDatas.resize(MAX_FRAMES_IN_FLIGHT);
+        ssboDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        cameraDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
 
         VkDescriptorSetAllocateInfo allocateDescriptorsInfo = {};
         allocateDescriptorsInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
         allocateDescriptorsInfo.descriptorPool = descriptorPool;
         allocateDescriptorsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocateDescriptorsInfo.pSetLayouts = layouts.data();
-        vkAllocateDescriptorSets(device, &allocateDescriptorsInfo, descriptorSets.data());
+        allocateDescriptorsInfo.pSetLayouts = ssboLayouts.data();
 
-        ubo.model = glm::mat4(1.0f);
-        ubo.view = lookAt(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        ubo.proj = glm::perspective(glm::radians(45.0f), static_cast<float>(extent.width) / static_cast<float>(extent.height), 0.1f, 1000.0f);
+        vkAllocateDescriptorSets(device, &allocateDescriptorsInfo, ssboDescriptorSets.data());
 
+        VkDescriptorSetAllocateInfo cameraAllocateDescriptorsInfo = {};
+        cameraAllocateDescriptorsInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        cameraAllocateDescriptorsInfo.descriptorPool = descriptorPool;
+        cameraAllocateDescriptorsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        cameraAllocateDescriptorsInfo.pSetLayouts = cameraLayouts.data();
+
+        vkAllocateDescriptorSets(device, &cameraAllocateDescriptorsInfo, cameraDescriptorSets.data());
+
+        camera.view = lookAt(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        camera.proj = glm::perspective(glm::radians(45.0f), static_cast<float>(extent.width) / static_cast<float>(extent.height), 0.1f, 1000.0f);
+        
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,sizeof(UniformBufferObject), &uboBuffers[i], &uboMemories[i]);
-            vkMapMemory(device, uboMemories[i], 0, sizeof(UniformBufferObject), 0, &uboDatas[i]);
-            memcpy(uboDatas[i], &ubo, sizeof(ubo));
+            // start with a capacity for 200 model matrices
+            createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,sizeof(glm::mat4)*200, &ssboBuffers[i], &ssboMemories[i]);
+            vkMapMemory(device, ssboMemories[i], 0, sizeof(glm::mat4)*200, 0, &ssboDatas[i]);
+            memcpy(ssboDatas[i], instances.data(), instances.size() * sizeof(glm::mat4));
             // vkUnmapMemory(device, uboMemories[i]);
 
             VkDescriptorBufferInfo bufferInfo = {};
-            bufferInfo.buffer = uboBuffers[i];
+            bufferInfo.buffer = ssboBuffers[i];
             bufferInfo.offset = 0;
-            bufferInfo.range = sizeof(UniformBufferObject);
+            bufferInfo.range = sizeof(glm::mat4)*200;
+
+            VkWriteDescriptorSet writeDesc = {};
+            writeDesc.descriptorCount = 1;
+            writeDesc.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writeDesc.pBufferInfo = &bufferInfo;
+            writeDesc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writeDesc.dstBinding = 0; 
+            writeDesc.dstSet = ssboDescriptorSets[i]; 
+
+            vkUpdateDescriptorSets(device, 1, &writeDesc, 0, nullptr);
+        }
+
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            // start with a capacity for 200 model matrices
+            createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,sizeof(Camera), &cameraBuffers[i], &cameraMemories[i]);
+            vkMapMemory(device, cameraMemories[i], 0, sizeof(Camera), 0, &cameraDatas[i]);
+            memcpy(cameraDatas[i], &camera, sizeof(Camera));
+            // vkUnmapMemory(device, uboMemories[i]);
+
+            VkDescriptorBufferInfo bufferInfo = {};
+            bufferInfo.buffer = cameraBuffers[i];
+            bufferInfo.offset = 0;
+            bufferInfo.range = sizeof(Camera);
 
             VkWriteDescriptorSet writeDesc = {};
             writeDesc.descriptorCount = 1;
@@ -407,7 +494,7 @@ class Core {
             writeDesc.pBufferInfo = &bufferInfo;
             writeDesc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writeDesc.dstBinding = 0; 
-            writeDesc.dstSet = descriptorSets[i]; 
+            writeDesc.dstSet = cameraDescriptorSets[i]; 
 
             vkUpdateDescriptorSets(device, 1, &writeDesc, 0, nullptr);
         }
@@ -467,12 +554,20 @@ class Core {
         pipelineRenderingCreateInfo.colorAttachmentCount = 1;
         pipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
 
+
+        VkPushConstantRange range = {};
+        range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        range.offset = 0;
+        range.size = sizeof(uint32_t);
+
+        VkDescriptorSetLayout layouts[2] = {ssboLayouts[0], cameraLayouts[0]};
+
         VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &layouts[0];
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
-        pipelineLayoutInfo.pPushConstantRanges = nullptr;
+        pipelineLayoutInfo.setLayoutCount = 2;
+        pipelineLayoutInfo.pSetLayouts = layouts;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &range;
 
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("failed to create pipeline layout!");
@@ -481,7 +576,7 @@ class Core {
         VkVertexInputBindingDescription bindingDescription = {};
         bindingDescription.binding = 0;
         bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        bindingDescription.stride = sizeof(glm::vec3);
+        bindingDescription.stride = sizeof(glm::vec3) + sizeof(glm::vec3) + sizeof(glm::vec2);
 
         std::vector<VkVertexInputAttributeDescription> attributeDescriptors;
         
@@ -489,8 +584,19 @@ class Core {
         attributeDescriptionPos.binding = 0;
         attributeDescriptionPos.location = 0;
         attributeDescriptionPos.format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptionPos.offset = 0;
+        attributeDescriptionPos.offset = offsetof(Vertex, position);
 
+        VkVertexInputAttributeDescription attributeDescriptionNormals = {};
+        attributeDescriptionNormals.binding = 0;
+        attributeDescriptionNormals.location = 1;
+        attributeDescriptionNormals.format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptionNormals.offset = offsetof(Vertex, normal);
+
+        VkVertexInputAttributeDescription attributeDescriptionUvs = {};
+        attributeDescriptionUvs.binding = 0;
+        attributeDescriptionUvs.location = 2;
+        attributeDescriptionUvs.format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptionUvs.offset = offsetof(Vertex, uv);
         // VkVertexInputAttributeDescription attributeDescriptionColor = {};
         // attributeDescriptionColor.binding = 0;
         // attributeDescriptionColor.location = 1;
@@ -498,6 +604,8 @@ class Core {
         // attributeDescriptionColor.offset = offsetof(Vertex, color);
 
         attributeDescriptors.push_back(attributeDescriptionPos);
+        attributeDescriptors.push_back(attributeDescriptionNormals);
+        attributeDescriptors.push_back(attributeDescriptionUvs);
         // attributeDescriptors.push_back(attributeDescriptionColor);
 
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
@@ -597,16 +705,16 @@ class Core {
         vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
     }
 
-    void createVertexAndIndexBuffers(VkBuffer *vertexBuffer, VkBuffer *indexBuffer, std::vector<glm::vec3>& vertices, std::vector<uint32_t>& indices) {
+    void createVertexAndIndexBuffers(VkBuffer *vertexBuffer, VkBuffer *indexBuffer, std::vector<Vertex>& vertexData, std::vector<uint32_t>& indices) {
         VkDeviceMemory vertexBufferMemory;
         VkDeviceMemory indexBufferMemory;
-        createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.size()*sizeof(vertices[0]), vertexBuffer, &vertexBufferMemory);
+        createBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexData.size()*sizeof(Vertex), vertexBuffer, &vertexBufferMemory);
         createBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indices.size()*sizeof(indices[0]), indexBuffer, &indexBufferMemory);
-        void * vertexData;
+        void * vData;
         void * indexData;
-        vkMapMemory(device, vertexBufferMemory, 0, vertices.size()*sizeof(vertices[0]), 0, &vertexData);
+        vkMapMemory(device, vertexBufferMemory, 0, vertexData.size()*sizeof(Vertex), 0, &vData);
         vkMapMemory(device, indexBufferMemory, 0, indices.size()*sizeof(indices[0]), 0, &indexData);
-        memcpy(vertexData, vertices.data(), vertices.size()*sizeof(vertices[0]));
+        memcpy(vData, vertexData.data(), vertexData.size()*sizeof(Vertex));
         memcpy(indexData, indices.data(), indices.size()*sizeof(indices[0]));
         vkUnmapMemory(device, vertexBufferMemory);
         vkUnmapMemory(device, indexBufferMemory);
@@ -731,24 +839,26 @@ class Core {
         vkCmdSetViewport(commandBuffers[currentFrame], 0, 1, &viewport);
         vkCmdSetScissor(commandBuffers[currentFrame], 0, 1, &scissor);
         VkDeviceSize offset = 0;
-    
+        uint32_t index;
+        
+        VkDescriptorSet descriptors[2] = {ssboDescriptorSets[currentFrame], cameraDescriptorSets[currentFrame]};
+
         for (Model mod : models){
-            // here just need to also push 
-            ubo.model = glm::translate(glm::mat4(1), glm::vec3(-6, 1, 1));
-            memcpy(uboDatas[currentFrame], &ubo, sizeof(UniformBufferObject));
+            index = 0;            
+            vkCmdPushConstants(commandBuffers[currentFrame], pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &index);
 
             vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, &mod.vertexBuffer, &offset);
             vkCmdBindIndexBuffer(commandBuffers[currentFrame], mod.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-            vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,1, &descriptorSets[currentFrame], 0, nullptr);
+            vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,2, descriptors, 0, nullptr);
             vkCmdDrawIndexed(commandBuffers[currentFrame], mod.indices.size(), 1, 0, 0, 0);
 
-            ubo.model = glm::translate(glm::mat4(1), glm::vec3(9, 1, 1));
-            memcpy(uboDatas[currentFrame], &ubo, sizeof(UniformBufferObject));
 
+            index = 1;
+            vkCmdPushConstants(commandBuffers[currentFrame], pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &index);
 
             vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, &mod.vertexBuffer, &offset);
             vkCmdBindIndexBuffer(commandBuffers[currentFrame], mod.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-            vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,1, &descriptorSets[currentFrame], 0, nullptr);
+            vkCmdBindDescriptorSets(commandBuffers[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,2, descriptors, 0, nullptr);
             vkCmdDrawIndexed(commandBuffers[currentFrame], mod.indices.size(), 1, 0, 0, 0);
         }
         vkCmdEndRendering(commandBuffers[currentFrame]);    
@@ -788,7 +898,6 @@ class Core {
         dir.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
         cameraFront = glm::normalize(dir);
 
-        ubo.view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
     }
 
     void mainLoop() {
@@ -802,8 +911,10 @@ class Core {
 
             handleInput(deltaTime);
             handleMouse();
+            camera.view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
-            memcpy(uboDatas[currentFrame], &ubo, sizeof(UniformBufferObject));
+            memcpy(ssboDatas[currentFrame], instances.data(), instances.size()*sizeof(glm::mat4));
+            memcpy(cameraDatas[currentFrame], &camera, sizeof(Camera));
 
 
             auto fenceResult = vkWaitForFences(device, 1, &drawFences[currentFrame], VK_TRUE, UINT64_MAX);

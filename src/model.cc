@@ -2,14 +2,17 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <vulkan/vulkan_core.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 void Model::load(const char* filepath) {
     cgltf_options options = {};
-    cgltf_data* data = NULL;
     cgltf_result result = cgltf_parse_file(&options, filepath, &data);
     if (result != cgltf_result_success) throw std::runtime_error("failed to load model\n");
 
     result = cgltf_load_buffers(&options,data,filepath);
+    printf("%d\n\n\n\n", data->textures_count);
     for (int meshIndex = 0; meshIndex<data->meshes_count; meshIndex++) {
         uint32_t globalIndex = indices.size();
         int attributeCount = data->meshes[meshIndex].primitives[0].attributes_count;
@@ -82,6 +85,7 @@ void Model::load(const char* filepath) {
                     normals.push_back(vertcoord);
                 }
             }
+            if (att.type == cgltf_attribute_type_color) printf("colorr\n");
             if (att.type == cgltf_attribute_type_texcoord && att.index == 0) {
 
                 cgltf_accessor acc = *att.data;
@@ -100,3 +104,11 @@ void Model::load(const char* filepath) {
         }
     }
 }
+
+void Model::loadImage() {
+    int texWidth, texHeight, texChannels;
+    // stbi_uc *pixels = stbi_load_from_memory();
+ 
+}
+
+

@@ -9,6 +9,8 @@
 class Model {
     public:
     
+    cgltf_data* data;
+
     uint32_t index;
 
     glm::mat4 T;
@@ -27,7 +29,6 @@ class Model {
 
     std::vector<uint32_t> indices;
     void load(const char* filepath);
-
-
+    void loadImage();
 
 };
