@@ -121,7 +121,12 @@ class Core {
     }
 
     void createTextures() {
-        
+        //create the buffer and buffer memory
+        VkBuffer textureBuffer;
+        VkDeviceMemory textureMemory;
+        void *data;
+
+
     }
 
     void loadModels() {
