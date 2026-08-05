@@ -96,7 +96,11 @@ class Core {
 
     Model model;
 
-
+    VkImage textureImage;
+    VkImageView textureImageView;
+    VkDeviceMemory textureImageMemory;
+    VkBuffer textureImageBuffer;
+    VkSampler textureSampler;
 
     void runApp() {
         initEngine();
@@ -125,6 +129,10 @@ class Core {
         VkBuffer textureBuffer;
         VkDeviceMemory textureMemory;
         void *data;
+
+        VkImageCreateInfo imageInfo = {};
+        VkSamplerCreateInfo samplerInfo = {};
+        samplerInfo.
 
 
     }
